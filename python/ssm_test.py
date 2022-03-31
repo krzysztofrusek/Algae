@@ -141,6 +141,20 @@ class SSMCyfronetTestCase(unittest.TestCase):
         print(p.fit(2))
         print(p.q_samples)
         pass
+    def test_predict_mc(self):
+        file: str = "data/agh_core30min.csv"
+        df = pd.read_csv(file, index_col='timestamp')
+        df.index = pd.to_datetime(df.index)
+        df.sort_values(by=['timestamp'], ascending=True)
+        ts = df['cyfronet-ucirtr']
+
+        p = ssm.TimeSeriesPredictor(num_forecast_steps=2*2*24, ts=ts)
+
+        p.fit(2)
+        p.predict_mc(10,num_smaples=100)
+        return
+
+
 
 
 if __name__ == '__main__':

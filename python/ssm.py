@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any,Tuple
 import os
 
 import matplotlib.pyplot as plt
@@ -270,7 +270,7 @@ class TimeSeriesPredictor:
 
 
         # Using fit_surrogate_posterior to build and optimize the variational loss function.
-        @tf.function(autograph=False, experimental_compile=True)
+        @tf.function(autograph=False, jit_compile=True)
         def train():
             elbo_loss_curve = tfp.vi.fit_surrogate_posterior(
                 target_log_prob_fn=model.joint_log_prob(
@@ -316,8 +316,16 @@ class TimeSeriesPredictor:
             forecast_dist.mean().numpy()[..., 0],
             forecast_dist.stddev().numpy()[..., 0])
 
-
-
+    def predict_mc(self, num_posterior: int = 50,num_smaples:int=1000, transform=lambda x: x)->Tuple[np.array,np.array]:
+        forecast_dist = tfp.sts.forecast(
+            self.model(),
+            observed_time_series=self.train_ts,
+            parameter_samples=self.posterior.sample(num_posterior),
+            num_steps_forecast=self.num_forecast_steps)
+        s = transform(forecast_dist.sample(num_smaples))
+        m = np.mean(s, axis=(0,2))
+        ci = np.quantile(s,q=[0.025,0.975], axis=(0,2))
+        return m,ci
 
 
 Root = tfd.JointDistributionCoroutine.Root
@@ -359,19 +367,20 @@ class AggregatedPredictor(TimeSeriesPredictor):
 
         jd= tfd.JointDistributionCoroutine(sts_model)
 
-        constraining_bijectors = ([param.bijector for param in model.parameters] +
-                                  2*[tfb.Identity()])
+        # constraining_bijectors = ([param.bijector for param in model.parameters] +
+        #                           2*[tfb.Identity()])
+        constraining_bijectors = [param.bijector for param in model.parameters] 
 
         target_log_prob_fn = lambda *args: jd.log_prob(args + (train_ts,train_ts2))
         variational_posteriors = tfp.experimental.vi.build_factored_surrogate_posterior(
             event_shape=jd.event_shape[:-2],
-        constraining_bijectors=constraining_bijectors)
+        bijector=constraining_bijectors)
 
 
         optimizer = tf.optimizers.Adam(learning_rate=.1)
 
 
-        @tf.function(autograph=False, experimental_compile=True)
+        @tf.function(autograph=False, jit_compile=True)
         def train():
             elbo_loss_curve = tfp.vi.fit_surrogate_posterior(
                 target_log_prob_fn=target_log_prob_fn,
@@ -401,9 +410,7 @@ def plot_forecast(self, forecast_mean, forecast_scale):
                     forecast_mean + 2 * forecast_scale, alpha=0.2, label=r"$\pm 2\sigma$")
     ax.legend()
 
-
-
-if __name__ == '__main__':
+def main_agh_core():
     file: str = "data/agh_core30min.csv"
     df = pd.read_csv(file, index_col='timestamp')
     df.index = pd.to_datetime(df.index)
@@ -437,3 +444,73 @@ if __name__ == '__main__':
     plt.savefig('ssm/predict_agg.svg')
     p.save()
 
+def main_geometric():
+    file: str = "data/geo30min.csv"
+    df = pd.read_csv(file, index_col='timestamp')
+    df.index = pd.to_datetime(df.index)
+    df.sort_values(by=['timestamp'], ascending=True)
+    ts = df['cyfronet-ucirtr']
+
+    predictor = TimeSeriesPredictor(num_forecast_steps=2*2*24, ts=ts)
+    elbo=predictor.fit(num_variational_steps=300)
+    plt.plot(elbo)
+    plt.savefig('ssm/fit_orig_geo.svg')
+    predictor.save()
+
+    forecast_mean, forecast_scale = predictor.predict()
+    plot_forecast(predictor, forecast_mean, forecast_scale)
+    plt.savefig('ssm/predict_orig_geo.svg')
+
+
+    file: str = "data/geo2h.csv"
+    df = pd.read_csv(file, index_col='timestamp')
+    df.index = pd.to_datetime(df.index)
+    df.sort_values(by=['timestamp'], ascending=True)
+    ts2 = df['cyfronet-ucirtr']
+
+    p = AggregatedPredictor(num_forecast_steps=2*2*24, ts=ts.astype(np.float32), ts2=ts2.astype(np.float32))
+    plt.figure()
+    elbo=p.fit(num_variational_steps=300)
+    plt.plot(elbo)
+    plt.savefig('ssm/fit_agg_geo.svg')
+    forecast_mean, forecast_scale = p.predict()
+    plot_forecast(predictor, forecast_mean, forecast_scale)
+    plt.savefig('ssm/predict_agg_geo.svg')
+    p.save()
+
+def main_arithmetric():
+    file: str = "data/arit30min.csv"
+    df = pd.read_csv(file, index_col='timestamp')
+    df.index = pd.to_datetime(df.index)
+    df.sort_values(by=['timestamp'], ascending=True)
+    ts = df['cyfronet-ucirtr']
+
+    predictor = TimeSeriesPredictor(num_forecast_steps=2*2*24, ts=ts)
+    elbo=predictor.fit(num_variational_steps=300)
+    plt.plot(elbo)
+    plt.savefig('ssm/fit_orig_arit.svg')
+    predictor.save()
+
+    forecast_mean, forecast_scale = predictor.predict()
+    plot_forecast(predictor, forecast_mean, forecast_scale)
+    plt.savefig('ssm/predict_orig_arit.svg')
+
+
+    file: str = "data/arit2h.csv"
+    df = pd.read_csv(file, index_col='timestamp')
+    df.index = pd.to_datetime(df.index)
+    df.sort_values(by=['timestamp'], ascending=True)
+    ts2 = df['cyfronet-ucirtr']
+
+    p = AggregatedPredictor(num_forecast_steps=2*2*24, ts=ts.astype(np.float32), ts2=ts2.astype(np.float32))
+    plt.figure()
+    elbo=p.fit(num_variational_steps=300)
+    plt.plot(elbo)
+    plt.savefig('ssm/fit_agg_arit.svg')
+    forecast_mean, forecast_scale = p.predict()
+    plot_forecast(predictor, forecast_mean, forecast_scale)
+    plt.savefig('ssm/predict_agg_arit.svg')
+    p.save()
+
+if __name__ == '__main__':
+    main_geometric()
