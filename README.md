@@ -10,4 +10,4 @@ For more information check our [demo](python/Demo.ipynb) notebook
 
 # Acknowledgment
 
-This work was supported by the National Science Centre, Poland under grant nr 2019/03/X/ST7/00386.
+This work was supported by the National Science Centre, Poland under grant nr 2019/03/X/ST7/00386 and by the the PL-Grid Infrastructure.
